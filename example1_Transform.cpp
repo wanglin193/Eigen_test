@@ -1,10 +1,11 @@
 #include <Eigen/Dense>
 #include <Eigen/Geometry> 
 #include <iostream> 
+
 using namespace Eigen;
 using namespace std;
 
-typedef double Scalar ;
+typedef double Scalar;
 typedef Eigen::Matrix<Scalar,6,1> Vec6; 
 typedef Eigen::Matrix<Scalar,4,4> Mat4x4; 
 typedef Eigen::Matrix<Scalar,3,1> Vec3;
@@ -128,17 +129,6 @@ void test_transform( Vec6 & TV )
 	return ;
 }
 
-/*
-p = Eigen::AngleAxis<Scalar>(Angle,Axis); 
-q = Eigen::AngleAxis<Scalar>(Angle,Axis); 
-rotatedP = q * p * q.inverse();
-cout<<"rotatedP :\n"<<rotatedP.toRotationMatrix()<<endl; 
-cout<<"rotatedP :\n"<<p.matrix()*q.matrix()<<endl; 
-*/
-
-//Compile:
-//set INCLUDE=C:\eigen3.2.8\;%INCLUDE%
-//cl example1_Transform.cpp /MD /Ox /Ot /W3 /EHsc
 void main()
 {
 	test_rot();
@@ -153,7 +143,7 @@ void main()
 	test_transform( Vec6(vect2) ); 
 	test_transform( Vec6(vect2/=100) );  
 
-  //raw data has changed
+  	//raw data has changed
 	printf("raw_data r: %g %g %g\n",raw_data[0],raw_data[1],raw_data[2]);
 	printf("raw_data t: %g %g %g\n",raw_data[3],raw_data[4],raw_data[5]);
 
