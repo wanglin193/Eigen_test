@@ -1,14 +1,12 @@
 #include <iostream>
 #include <Eigen/Dense> 
 #include <Eigen/Geometry> 
+#include <unsupported/Eigen/NonLinearOptimization> 
 
-#include <unsupported/Eigen/NonLinearOptimization>
-//#include <unsupported/Eigen/LevenbergMarquardt>
-
+//http://eigen.tuxfamily.org/dox/unsupported/group__NonLinearOptimization__Module.html
 //Optimization Fisheye Camera Intrinsic and Extrinsic by Eigen::LevenbergMarquardt<>
 
 //fish eye camera model for imaging 
-//调用Autodiff时，T的类型变成AutoDiffScalar<>或 AutoDiffJacobian<>
 template<typename T>
 void P3d_to_P2d(const Eigen::Matrix<T, 3, 1>& P3d, Eigen::Matrix<T, 2, 1>& P2d,
   const Eigen::Matrix<T, 3, 1>& vr,//rotation
@@ -123,64 +121,56 @@ struct projective_functor : Functor<double>
 {
   typedef InputType::Scalar Scalar;
 
-  //set dimention of parameters from here
+  //set dimention of parameters
   projective_functor(int num_in, int num_val) : Functor<double>(num_in, num_val) {}
 
+  //constant variables
   Eigen::Matrix<double, 3, Eigen::Dynamic>  ObjectP3d;
   Eigen::Matrix<double, 2, Eigen::Dynamic>  ImageP2d;
 
-  int operator() (const InputType& param, ValueType& fvec) const
+  int operator() (const InputType& params, ValueType& fvec ) const
   {
     //std::cout << "inputs: " << inputs() << std::endl;
-   // std::cout << "values: " << values() << std::endl;
-    std::cout << "fvec " << fvec.rows() << " * " << fvec.cols() << std::endl;
-
-    Eigen::Matrix<Scalar, 2, 1>  v_;
+    //std::cout << "values: " << values() << std::endl;
 
     //for each 2d point     
     for (int i = 0; i < values() / 2; i++)
     {
-      P3d_to_P2d<Scalar>(ObjectP3d.col(i), v_, param);
+      Eigen::Vector2d  v_;
+      P3d_to_P2d<Scalar>(ObjectP3d.col(i), v_, params);
       fvec[2 * i] = ImageP2d(0, i) - v_(0);
       fvec[2 * i + 1] = ImageP2d(1, i) - v_(1);
     }
-    // std::cout << fvec.transpose()<< std::endl;
-    std::cout << "done" << std::endl;
+    //std::cout << fvec.norm()  ;
     return 0;
   }
 
   //手工计算Jacobian的版本，这里用Numerical Method
   int df(const InputType& x, JacobianType& fjac) const
   {
-    double epsilon = 1e-6;
-
-    Eigen::Matrix<Scalar, 2, -1> J_pt;
-    J_pt.resize(2, inputs());
-    std::cout << "fjac: " << fjac.rows() << " * " << fjac.cols() << std::endl;
-
-    for (int j = 0; j < fjac.rows() / 2; j++)
+    Scalar epsilon = 1e-8f;
+    InputType xp = x;
+    auto inv = 1.0 / (2.0f*epsilon);
+    //add disturb to each parameters
+    for (int i = 0; i < inputs(); i++)
     {
-      Eigen::Matrix<Scalar, 2, 1> P2d_plus, P2d_minus;
-      auto x_buffer = x;
-      for (int i = 0; i < inputs(); i++)
-      {
-        auto temp = x(i);
-        x_buffer[i] = temp + epsilon;
-        P3d_to_P2d<Scalar>(ObjectP3d.col(j), P2d_plus, x_buffer);
+      xp(i) = x(i) + epsilon;
+      ValueType fvec1(values());
+      (*this)(xp, fvec1);
 
-        x_buffer[i] = temp - epsilon;
-        P3d_to_P2d<Scalar>(ObjectP3d.col(j), P2d_minus, x_buffer);
+      xp(i) = x(i) - epsilon;
+      ValueType fvec2(values());
+      (*this)(xp, fvec2);
 
-        J_pt.col(i) = (P2d_plus - P2d_minus) / (2 * epsilon);
-      }
-      fjac.row(2 * j) = J_pt.row(0);
-      fjac.row(2 * j + 1) = J_pt.row(1);
+      fjac.col(i) = (fvec1 - fvec2)*inv;
     }
-    //std::cout<< fjac<< std::endl;
-    std::cout << "done in J." << std::endl;
+    //LM不是每次调用operator都计算df的
+    //std::cout << "ok df()\n";
     return 0;
   }
 };
+
+
 
 //单张图片 LM法估计鱼眼相机内参外参
 void test_fisheye_singleview_calibrate_LM()
@@ -221,35 +211,62 @@ void test_fisheye_singleview_calibrate_LM()
   }
   //cout << ImageP2d << endl;
   //--------------------------------init camera params and poses
-  TypeCamIntrinsic InitCameraParams, CameraParams;//intrinsic
-  TypeCamExtrinsic InitCameraPoses, CameraPoses; //extrinsic
+  TypeCamIntrinsic InitCameraParams;//intrinsic
+  TypeCamExtrinsic InitCameraPoses; //extrinsic
 
   InitCameraParams << 280, 280, 320, 240, 0, 0, 0, 0, 0;
   InitCameraPoses << 0, 0, 0.0001, 0, 0, 100;
 
   //------------------------------------------------------------------
-  Eigen::VectorXd p; p.resize(15, 1);
+  Eigen::VectorXd p(15);
   p << InitCameraParams, InitCameraPoses;
 
   projective_functor foo(15, 2 * ImageP2d.cols());
+
+  //设置3D-2D对应数据
   foo.ObjectP3d = ObjectP3d;
   foo.ImageP2d = ImageP2d;
+
+  //test functor
+  if (1)
+  {
+    VectorXd residual(2 * ImageP2d.cols());
+    foo(p, residual);
+    cout << "Init Energy: " << residual.norm() << endl;
+  }
+
+#if 0
+  //auto cal numerical diff
+  Eigen::NumericalDiff<projective_functor> numdiff(foo);
+  Eigen::LevenbergMarquardt<Eigen::NumericalDiff<projective_functor>, double> lm(numdiff);
+#else
+  //calculate df by hand
   Eigen::LevenbergMarquardt<projective_functor> lm(foo);
+#endif
 
-  //VectorXd residual;  residual.resize(2 * ImageP2d.cols(), 1);
-  //foo(p, residual);
- // cout << residual << endl;
-  lm.parameters.maxfev = 5;//max iter number
+  lm.parameters.maxfev = 100;//max iter number
+ //lm.parameters.gtol = 0.01;
+ //lm.parameters.xtol = 0.1;
 
- // lm.parameters.xtol = 0.0001;
+  //do computation
+  int ret = lm.minimize(p);
 
-  int ret = lm.lmder1(p);
-  cout << lm.fvec.blueNorm() << endl;
-  cout << p.transpose() << endl;
+  //cout << "blueNorm of residual: " << lm.fvec.blueNorm() << endl;
+ 
+  cout << "number of iterations performed: " << lm.iter << endl;
+  cout << "number of functions evaluation: " << lm.nfev << ", number of jacobian evaluation: " << lm.njev << endl;
+  cout << "Result parameters: " << p.transpose() << endl;
+
+  //test functor
+  if (1)
+  {
+    VectorXd residual(2 * ImageP2d.cols());
+    foo(p, residual);
+    cout << "Final Energy: " << residual.norm() << endl;
+  }
 }
 
 void main()
 {
-
   test_fisheye_singleview_calibrate_LM();
 }
