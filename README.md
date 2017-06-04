@@ -2,7 +2,7 @@
 
 Set path in Visual Studio Command Prompt:
 
-    set INCLUDE=C:\eigen3.2.8\;%INCLUDE%
+    set INCLUDE=C:\eigen3.3.3\;%INCLUDE%
 
 Compile:
 
